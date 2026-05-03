@@ -1,0 +1,117 @@
+# config/real.yaml
+# 실제 하드웨어 설정
+# ⚠️ 0.0 으로 표시된 값은 기계팀 설계 확정 후 반드시 업데이트 필요
+# 업데이트 안 하면 실행 시 ValueError 발생 (config/loader.py에서 검증)
+
+mode: real
+
+network:
+  laptop_ip: "192.168.137.1"     # 기본 노트북 IP (Wi-Fi 상황에 맞게 수정)
+  rpi_ip: "192.168.137.126"      # 기본 라파 IP
+  video_port: 9999
+  command_port: 9998
+  telemetry_port: 9997
+  video_chunk_size: 1400
+
+camera:
+  device_index: 0
+  width: 640
+  height: 480
+  fps: 30
+  jpeg_quality: 70
+  send_width: 320
+  send_height: 240
+
+yolo:
+  model_path: "yolov8n.pt"
+  confidence_threshold: 0.5
+  detect_every_n_frames: 3
+  target_classes: [0]
+
+robot:
+  # ⚠️ 기계팀 설계 도착 후 반드시 업데이트
+  wheelbase: 0.30                # [m] 임시 (기계팀 확정 시 수정)
+  middle_axle_offset: 0.0        # [m] 중간축이 차체 중앙이면 0
+  track: 0.25                    # [m] 임시
+  num_wheels: 6
+  
+  mass: 5.0                      # [kg] 임시
+  moment_of_inertia: 0.1         # [kg·m²] 임시
+  
+  wheel:
+    radius_min: 0.03             # [m] 3cm
+    radius_max: 0.06             # [m] 6cm
+    radius_default: 0.04         # [m] 4cm
+    size_change_rate: 0.5
+  
+  steering:
+    max_angle: 0.524             # [rad] 30도
+    rate_limit: 1.5              # [rad/s]
+    front_only: true
+  
+  motion:
+    max_velocity: 1.0            # [m/s] 임시
+    max_acceleration: 1.0        # [m/s²] 임시
+    max_yaw_rate: 1.5            # [rad/s] 임시
+
+tire:
+  # 시뮬과 동일한 기본값 사용 (실측 후 조정)
+  B: 10.0
+  C: 1.9
+  D: 1.0
+  E: 0.97
+
+control:
+  loop_rate: 50
+  
+  velocity_pid:
+    kp: 1.0
+    ki: 0.1
+    kd: 0.05
+    integral_limit: 1.0
+    output_limit: 1.0
+  
+  steering_pid:
+    kp: 2.0
+    ki: 0.0
+    kd: 0.1
+    integral_limit: 0.5
+    output_limit: 1.0
+  
+  pure_pursuit:
+    lookahead_distance: 0.5
+    min_lookahead: 0.2
+    max_lookahead: 1.5
+
+sensors:
+  ultrasonic:
+    enabled: true
+    update_rate: 10
+    max_range: 4.0
+    min_range: 0.02
+    # ⚠️ 실제 센서 장착 위치로 업데이트 필요
+    sensors:
+      - {name: "front",       x: 0.15, y: 0.0,    yaw: 0.0}
+      - {name: "front_left",  x: 0.10, y: 0.10,   yaw: 0.785}
+      - {name: "front_right", x: 0.10, y: -0.10,  yaw: -0.785}
+      - {name: "rear",        x: -0.15, y: 0.0,   yaw: 3.14}
+      - {name: "left",        x: 0.0, y: 0.125,   yaw: 1.5708}
+      - {name: "right",       x: 0.0, y: -0.125,  yaw: -1.5708}
+    danger_threshold: 0.30
+    warning_threshold: 0.80
+
+# real 모드에선 simulation 섹션 무시됨
+
+gui:
+  window_title: "Disaster Rescue Robot - Operator Console"
+  fullscreen: false
+  width: 1600
+  height: 900
+  theme: "dark"
+  fps_target: 30
+  show_help_on_startup: true
+
+safety:
+  command_timeout: 3.0
+  video_timeout: 3.0
+  enable_return_to_base: true

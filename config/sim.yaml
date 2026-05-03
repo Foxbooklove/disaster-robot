@@ -1,0 +1,153 @@
+# config/sim.yaml
+# 시뮬레이션 전용 설정 - localhost에서 두 프로세스 실행
+# ⚠️ 모든 물리 파라미터는 임시값. 실제 하드웨어 도착 후 real.yaml 사용
+
+mode: simulation
+
+# ─────────────────────────────────────────────
+# 네트워크
+# ─────────────────────────────────────────────
+network:
+  laptop_ip: "127.0.0.1"
+  rpi_ip: "127.0.0.1"
+  video_port: 9999       # UDP, RPi → Laptop
+  command_port: 9998     # TCP, Laptop → RPi
+  telemetry_port: 9997   # TCP, RPi → Laptop
+  video_chunk_size: 1400 # UDP MTU 안전 영역 (1500 - 헤더)
+
+# ─────────────────────────────────────────────
+# 카메라
+# ─────────────────────────────────────────────
+camera:
+  device_index: 0
+  width: 640
+  height: 480
+  fps: 30
+  jpeg_quality: 70
+  send_width: 320        # 송신 시 다운스케일
+  send_height: 240
+
+# ─────────────────────────────────────────────
+# YOLO
+# ─────────────────────────────────────────────
+yolo:
+  model_path: "yolov8n.pt"
+  confidence_threshold: 0.5
+  detect_every_n_frames: 3
+  target_classes: [0]    # COCO: 0=person
+
+# ─────────────────────────────────────────────
+# 로봇 물리 파라미터 (시뮬용 임시값)
+# ─────────────────────────────────────────────
+robot:
+  # ─── 기하 ───
+  wheelbase: 0.40              # [m] 앞-뒤 바퀴축 거리 (Ackermann의 L)
+  middle_axle_offset: 0.0      # [m] 중간 축이 앞-뒤 중앙에서 떨어진 거리
+  track: 0.30                  # [m] 좌-우 바퀴 거리 (Ackermann의 W)
+  num_wheels: 6
+  
+  # ─── 질량/관성 (Dynamics용) ───
+  mass: 5.0                    # [kg]
+  moment_of_inertia: 0.15      # [kg·m²] yaw 축 기준
+  
+  # ─── 바퀴 ───
+  wheel:
+    radius_min: 0.04           # [m] 변형 최소 반경
+    radius_max: 0.08           # [m] 변형 최대 반경
+    radius_default: 0.05       # [m] 시작 반경
+    size_change_rate: 0.5      # [1/s] 키 누름 시 변화율 (정규화 단위)
+  
+  # ─── 조향 ───
+  steering:
+    max_angle: 0.523           # [rad] ≈ 30도, 최대 조향각
+    rate_limit: 1.5            # [rad/s] 조향 속도 제한 (서보 응답)
+    front_only: true           # true: 앞만 조향, false: 앞뒤 모두
+  
+  # ─── 속도/가속도 ───
+  motion:
+    max_velocity: 0.5          # [m/s]
+    max_acceleration: 1.0      # [m/s²]
+    max_yaw_rate: 1.5          # [rad/s]
+
+# ─────────────────────────────────────────────
+# 타이어 모델 (Pacejka Magic Formula)
+# F = D · sin(C · atan(B·x - E·(B·x - atan(B·x))))
+# ─────────────────────────────────────────────
+tire:
+  B: 10.0                      # 강성 계수
+  C: 1.9                       # 형상 계수
+  D: 1.0                       # 피크 마찰계수
+  E: 0.97                      # 곡률 계수
+
+# ─────────────────────────────────────────────
+# 제어 파라미터
+# ─────────────────────────────────────────────
+control:
+  loop_rate: 50                # [Hz] 제어 루프 주기
+  
+  velocity_pid:
+    kp: 1.0
+    ki: 0.1
+    kd: 0.05
+    integral_limit: 1.0
+    output_limit: 1.0
+  
+  steering_pid:
+    kp: 2.0
+    ki: 0.0
+    kd: 0.1
+    integral_limit: 0.5
+    output_limit: 1.0
+  
+  pure_pursuit:
+    lookahead_distance: 0.5    # [m]
+    min_lookahead: 0.2
+    max_lookahead: 1.5
+
+# ─────────────────────────────────────────────
+# 센서 (초음파)
+# ─────────────────────────────────────────────
+sensors:
+  ultrasonic:
+    enabled: true
+    update_rate: 10            # [Hz]
+    max_range: 4.0             # [m]
+    min_range: 0.02            # [m]
+    # 센서 위치 (로봇 중심 기준, 방향은 yaw 각도)
+    sensors:
+      - {name: "front",       x: 0.20, y: 0.0,  yaw: 0.0}
+      - {name: "front_left",  x: 0.18, y: 0.10, yaw: 0.785}   # 45도
+      - {name: "front_right", x: 0.18, y: -0.10, yaw: -0.785}
+      - {name: "rear",        x: -0.20, y: 0.0, yaw: 3.14}
+      - {name: "left",        x: 0.0, y: 0.15,  yaw: 1.5708}
+      - {name: "right",       x: 0.0, y: -0.15, yaw: -1.5708}
+    danger_threshold: 0.30     # [m] GUI에서 빨간색 표시 임계값
+    warning_threshold: 0.80    # [m] GUI에서 노란색 표시 임계값
+
+# ─────────────────────────────────────────────
+# 시뮬레이터 (가짜 센서/모터)
+# ─────────────────────────────────────────────
+simulation:
+  fake_obstacle_distance: 1.5  # 가짜 초음파가 반환할 기본 거리
+  fake_obstacle_noise: 0.05    # 노이즈 표준편차
+  motor_response_delay: 0.02   # [s] 가짜 모터 응답 지연
+
+# ─────────────────────────────────────────────
+# GUI
+# ─────────────────────────────────────────────
+gui:
+  window_title: "Disaster Rescue Robot - Operator Console"
+  fullscreen: false
+  width: 1600
+  height: 900
+  theme: "dark"
+  fps_target: 30
+  show_help_on_startup: true
+
+# ─────────────────────────────────────────────
+# 안전
+# ─────────────────────────────────────────────
+safety:
+  command_timeout: 3.0         # [s] 마지막 명령 후 이 시간 지나면 정지
+  video_timeout: 3.0           # [s] 영상 끊김 감지
+  enable_return_to_base: true  # 통신 끊겼을 때 역방향 자동 복귀
