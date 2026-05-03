@@ -320,7 +320,7 @@ def main():
             
             # ─── Odometry 업데이트 ───
             # 시뮬에선 명령 속도를 그대로 사용 (실제론 엔코더 사용)
-            from kinematics import ML, MR, RL, RR
+            from kinematics import FL, FR, ML, MR, RL, RR
             # 좌측 평균 (FL, ML, RL), 우측 평균 (FR, MR, RR)
             v_left_avg = (velocities[FL] + velocities[ML] + velocities[RL]) / 3
             v_right_avg = (velocities[FR] + velocities[MR] + velocities[RR]) / 3
