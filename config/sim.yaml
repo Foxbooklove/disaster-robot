@@ -8,12 +8,12 @@ mode: simulation
 # 네트워크
 # ─────────────────────────────────────────────
 network:
-  laptop_ip: "127.0.0.1"
-  rpi_ip: "127.0.0.1"
-  video_port: 9999       # UDP, RPi → Laptop
-  command_port: 9998     # TCP, Laptop → RPi
-  telemetry_port: 9997   # TCP, RPi → Laptop
-  video_chunk_size: 1400 # UDP MTU 안전 영역 (1500 - 헤더)
+  laptop_ip: "100.83.6.44"     # 노트북 Tailscale IP
+  rpi_ip: "100.67.88.118"      # 라파 Tailscale IP
+  video_port: 9999
+  command_port: 9998
+  telemetry_port: 9997
+  video_chunk_size: 1400
 
 # ─────────────────────────────────────────────
 # 카메라
