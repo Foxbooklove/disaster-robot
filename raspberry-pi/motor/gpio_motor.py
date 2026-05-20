@@ -2,24 +2,25 @@
 GPIO Motor HAL (실제 라파)
 
 회로도 기준 실제 모터 제어:
-- PCA9685 16채널 PWM 보드 (I2C)
-  - 채널 0~5: 변형 서보 6개 (바퀴 사이즈)
-  - 채널 6~11: 조향 서보 6개 (steer)
-- BTS7960 듀얼 DC 모터 드라이버
-  - 좌 그룹 (3개 모터 병렬): GPIO 18 (PWM), 23 (DIR)
-  - 우 그룹 (3개 모터 병렬): GPIO 19 (PWM), 24 (DIR)
+- PCA9685 16채널 PWM 보드 (I2C, 0x40)
+  - 채널 0~5: 변형 서보 6개 (바퀴 사이즈, FL/FR/ML/MR/RL/RR)
+  - 채널 6~9: 조향 서보 4개 (FL/FR/RL/RR, 가운데 ML/MR은 조향 없음)
+- BTS7960 듀얼 DC 모터 드라이버 2개 (RPWM+LPWM+EN 방식)
+  - BTS#1 좌 그룹 (3개 모터 병렬): GPIO 18 (RPWM), 12 (LPWM), 23 (EN)
+  - BTS#2 우 그룹 (3개 모터 병렬): GPIO 19 (RPWM), 13 (LPWM), 24 (EN)
 
 [속도 변환 흐름]
 1. Kinematics → 6개 wheel_velocities [m/s]
-2. 좌3 평균, 우3 평균 (회로상 좌/우 그룹이라)
+2. 좌3 평균, 우3 평균 (회로상 병렬 묶음이라 같은 명령)
 3. 정규화 ([-1, 1])
 4. 캘리브레이션 변환 → (duty, direction)
 5. BTS7960 출력
 
 [조향 변환 흐름]
-1. Kinematics → 6개 steer_angles [rad]
-2. 캘리브레이션 변환 → 펄스폭 [us]
-3. PCA9685 채널 6~11 출력
+1. Kinematics → 6개 steer_angles [rad] (가운데 ML/MR은 0 고정)
+2. 4개 조향 가능 바퀴 (FL/FR/RL/RR)만 추출
+3. 캘리브레이션 변환 → 펄스폭 [us]
+4. PCA9685 채널 6~9 출력
 
 [사이즈 변환 흐름]
 1. 6개 wheel_sizes [0,1]
@@ -28,8 +29,8 @@ GPIO Motor HAL (실제 라파)
 
 [안전]
 - 라이브러리 import 실패 → SimMotorHAL fallback (factory에서 처리)
-- 초기 상태: 모든 모터 정지 + 서보 중립
-- emergency_stop: 모든 출력 0
+- 초기 상태: BTS EN=LOW (모터 비활성), 서보 중립
+- emergency_stop: 모든 출력 0 + EN=LOW
 """
 
 import time
@@ -38,18 +39,24 @@ from typing import List, Optional
 from pathlib import Path
 
 from .hal import MotorHAL, MotorState
-from .calibration import MotorCalibration
+from .calibration import MotorCalibration, STEERABLE_WHEELS
 
 
-# 회로도 기준 핀/채널 매핑
-DEFAULT_TRANSFORM_CHANNELS = [0, 1, 2, 3, 4, 5]   # FL, FR, ML, MR, RL, RR
-DEFAULT_STEER_CHANNELS = [6, 7, 8, 9, 10, 11]
-DEFAULT_DC_LEFT_PWM = 18
-DEFAULT_DC_LEFT_DIR = 23
-DEFAULT_DC_RIGHT_PWM = 19
-DEFAULT_DC_RIGHT_DIR = 24
+# 회로도 기준 핀/채널 매핑 (WIRING.md 기준)
+DEFAULT_TRANSFORM_CHANNELS = [0, 1, 2, 3, 4, 5]    # FL, FR, ML, MR, RL, RR
+DEFAULT_STEER_CHANNELS = [6, 7, 8, 9]              # FL, FR, RL, RR (가운데 제외)
 
-# 바퀴 인덱스 (Kinematics base와 일치)
+# BTS#1 (좌측)
+DEFAULT_DC_LEFT_RPWM = 18    # 전진
+DEFAULT_DC_LEFT_LPWM = 12    # 후진
+DEFAULT_DC_LEFT_EN = 23
+
+# BTS#2 (우측)
+DEFAULT_DC_RIGHT_RPWM = 19   # 전진
+DEFAULT_DC_RIGHT_LPWM = 13   # 후진
+DEFAULT_DC_RIGHT_EN = 24
+
+# 바퀴 인덱스
 FL, FR, ML, MR, RL, RR = 0, 1, 2, 3, 4, 5
 
 
@@ -62,10 +69,12 @@ class GpioMotorHAL(MotorHAL):
                  max_velocity: float = 1.0,
                  transform_channels: List[int] = None,
                  steer_channels: List[int] = None,
-                 dc_left_pwm_pin: int = DEFAULT_DC_LEFT_PWM,
-                 dc_left_dir_pin: int = DEFAULT_DC_LEFT_DIR,
-                 dc_right_pwm_pin: int = DEFAULT_DC_RIGHT_PWM,
-                 dc_right_dir_pin: int = DEFAULT_DC_RIGHT_DIR,
+                 dc_left_rpwm_pin: int = DEFAULT_DC_LEFT_RPWM,
+                 dc_left_lpwm_pin: int = DEFAULT_DC_LEFT_LPWM,
+                 dc_left_en_pin: int = DEFAULT_DC_LEFT_EN,
+                 dc_right_rpwm_pin: int = DEFAULT_DC_RIGHT_RPWM,
+                 dc_right_lpwm_pin: int = DEFAULT_DC_RIGHT_LPWM,
+                 dc_right_en_pin: int = DEFAULT_DC_RIGHT_EN,
                  verbose: bool = True):
         """
         Args:
@@ -73,9 +82,9 @@ class GpioMotorHAL(MotorHAL):
             calibration_path: 캘리브레이션 yaml 경로. None이면 기본값.
             max_velocity: 최대 선속도 [m/s]. 정규화 기준.
             transform_channels: 변형 서보 채널 (기본 [0~5])
-            steer_channels: 조향 서보 채널 (기본 [6~11])
-            dc_left_pwm_pin/dir_pin: 좌측 DC PWM/DIR 핀
-            dc_right_pwm_pin/dir_pin: 우측 DC PWM/DIR 핀
+            steer_channels: 조향 서보 채널 4개 (기본 [6, 7, 8, 9])
+            dc_left_*: 좌측 BTS7960 핀
+            dc_right_*: 우측 BTS7960 핀
             verbose: 로그 출력
         """
         # 캘리브레이션 로드
@@ -94,6 +103,9 @@ class GpioMotorHAL(MotorHAL):
         self._transform_channels = transform_channels or DEFAULT_TRANSFORM_CHANNELS
         self._steer_channels = steer_channels or DEFAULT_STEER_CHANNELS
         
+        if len(self._steer_channels) != 4:
+            raise ValueError(f"조향 채널은 4개 필요 (FL/FR/RL/RR), 받음: {len(self._steer_channels)}")
+        
         self._state = MotorState()
         
         # 드라이버 초기화 (지연 import - 라파에서만 동작)
@@ -106,22 +118,34 @@ class GpioMotorHAL(MotorHAL):
             from .pca9685_driver import PCA9685Driver
             from .bts7960_driver import BTS7960Driver
             
-            # PCA9685 (서보 12개)
+            # PCA9685 (서보 10개)
             self._pca = PCA9685Driver(frequency_hz=50)
             
-            # BTS7960 좌/우 (lgpio 기반, chip handle 자동 공유)
+            # BTS7960 좌/우 (RPWM+LPWM+EN 방식, lgpio chip handle 자동 공유)
             self._dc_left = BTS7960Driver(
-                pwm_pin=dc_left_pwm_pin, dir_pin=dc_left_dir_pin)
+                rpwm_pin=dc_left_rpwm_pin,
+                lpwm_pin=dc_left_lpwm_pin,
+                en_pin=dc_left_en_pin,
+            )
             self._dc_right = BTS7960Driver(
-                pwm_pin=dc_right_pwm_pin, dir_pin=dc_right_dir_pin)
+                rpwm_pin=dc_right_rpwm_pin,
+                lpwm_pin=dc_right_lpwm_pin,
+                en_pin=dc_right_en_pin,
+            )
             
             # 모두 정상 동작 확인
             if (self._pca.is_available and
                 self._dc_left.is_available and
                 self._dc_right.is_available):
-                self._initialized = True
-                # 초기 상태: 서보는 중간, DC는 정지
+                
+                # 초기 상태: 서보 중립
                 self._set_all_servos_center()
+                
+                # BTS 활성화 (EN HIGH) - 시연 중엔 항상 활성, emergency_stop 시만 disable
+                self._dc_left.enable()
+                self._dc_right.enable()
+                
+                self._initialized = True
                 if verbose:
                     print("[GpioMotorHAL] 초기화 완료")
             else:
@@ -137,17 +161,17 @@ class GpioMotorHAL(MotorHAL):
             raise
     
     def _set_all_servos_center(self) -> None:
-        """모든 서보를 중간(또는 안전 기본 위치)으로"""
-        if not self._initialized:
+        """모든 서보를 중립 위치로"""
+        if self._pca is None or not self._pca.is_available:
             return
-        # 변형 서보: 사이즈 0.5 (중간)
-        for ch in self._transform_channels:
+        # 변형 서보 6개: 사이즈 0.5
+        for i, ch in enumerate(self._transform_channels):
             cal = self._find_transform_cal(ch)
             if cal:
                 pulse = cal.value_to_pulse(0.5)
                 self._pca.set_pulse_us(ch, pulse)
-        # 조향 서보: 각도 0 (직진)
-        for ch in self._steer_channels:
+        # 조향 서보 4개: 각도 0
+        for i, ch in enumerate(self._steer_channels):
             cal = self._find_steer_cal(ch)
             if cal:
                 pulse = cal.value_to_pulse(0.0)
@@ -197,7 +221,11 @@ class GpioMotorHAL(MotorHAL):
         self._dc_right.set(duty_r, dir_r)
     
     def set_steer_angles(self, angles: List[float]) -> None:
-        """6개 조향각 [rad] → PCA9685 채널 6~11"""
+        """6개 조향각 [rad] → PCA9685 채널 6~9 (조향 가능한 4개만)
+        
+        Args:
+            angles: 6개 바퀴의 조향각. 가운데 ML/MR (index 2, 3)은 무시됨.
+        """
         if len(angles) != 6:
             raise ValueError(f"6개 조향각 필요, 받음: {len(angles)}")
         
@@ -207,12 +235,13 @@ class GpioMotorHAL(MotorHAL):
         if not self._initialized:
             return
         
-        for i, angle in enumerate(angles):
-            ch = self._steer_channels[i]
+        # 조향 가능한 4개 바퀴만 추출 (FL, FR, RL, RR)
+        for ch_idx, wheel_idx in enumerate(STEERABLE_WHEELS):
+            ch = self._steer_channels[ch_idx]
             cal = self._find_steer_cal(ch)
             if cal is None:
                 continue
-            pulse = cal.value_to_pulse(angle)
+            pulse = cal.value_to_pulse(angles[wheel_idx])
             self._pca.set_pulse_us(ch, pulse)
     
     def set_wheel_sizes(self, sizes: List[float]) -> None:
@@ -235,16 +264,30 @@ class GpioMotorHAL(MotorHAL):
             self._pca.set_pulse_us(ch, pulse)
     
     def emergency_stop(self) -> None:
-        """모든 모터 즉시 정지. 서보는 현재 위치 유지."""
+        """모든 모터 즉시 정지 + EN LOW (드라이버 비활성)."""
         self._state.wheel_velocities = [0.0] * 6
         if self._initialized:
             try:
+                # PWM 먼저 0, 그 다음 EN LOW
                 self._dc_left.stop()
                 self._dc_right.stop()
+                self._dc_left.disable()
+                self._dc_right.disable()
             except Exception as e:
                 print(f"[GpioMotorHAL] emergency_stop 에러: {e}")
         if self._verbose:
             print("[GpioMotorHAL] EMERGENCY STOP")
+    
+    def resume(self) -> None:
+        """emergency_stop 후 다시 활성화"""
+        if self._initialized:
+            try:
+                self._dc_left.enable()
+                self._dc_right.enable()
+                if self._verbose:
+                    print("[GpioMotorHAL] resumed")
+            except Exception as e:
+                print(f"[GpioMotorHAL] resume 에러: {e}")
     
     def shutdown(self) -> None:
         """리소스 정리. 모든 PWM 끔."""
@@ -252,12 +295,10 @@ class GpioMotorHAL(MotorHAL):
             print("[GpioMotorHAL] 종료 중...")
         
         try:
-            # DC 정지
+            # DC 정지 + 비활성화 + 핀 free
             if self._dc_left is not None:
-                self._dc_left.stop()
                 self._dc_left.shutdown()
             if self._dc_right is not None:
-                self._dc_right.stop()
                 self._dc_right.shutdown()
             
             # PCA9685 끔 (서보 힘 빠짐)
