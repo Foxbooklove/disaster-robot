@@ -98,13 +98,14 @@ def main():
         return
     
     # 회로도 기준 핀 (lgpio가 chip handle 자동 공유)
-    left = BTS7960Driver(pwm_pin=18, dir_pin=23)
-    right = BTS7960Driver(pwm_pin=19, dir_pin=24)
+    left = BTS7960Driver(rpwm_pin=18, lpwm_pin=12, en_pin=23)
+    right = BTS7960Driver(rpwm_pin=19, lpwm_pin=13, en_pin=24)
     
     if not left.is_available or not right.is_available:
         print("BTS7960 초기화 실패")
         return
-    
+    left.enable()
+    right.enable()
     left_duty = 0.0
     left_dir = 1
     right_duty = 0.0
@@ -173,6 +174,8 @@ def main():
     finally:
         left.stop()
         right.stop()
+        left.disable()
+        right.disable()
         left.shutdown()
         right.shutdown()
         print()
