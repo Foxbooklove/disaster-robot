@@ -28,6 +28,11 @@ class NetworkConfig:
     command_port: int
     telemetry_port: int
     video_chunk_size: int
+    modes: Optional[dict] = None
+    
+    def __post_init__(self):
+        if self.modes is None:
+            self.modes = {}
 
 
 @dataclass

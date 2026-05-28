@@ -6,12 +6,17 @@
 mode: real
 
 network:
-  laptop_ip: "192.168.137.1"     # 기본 노트북 IP (Wi-Fi 상황에 맞게 수정)
-  rpi_ip: "192.168.137.126"      # 기본 라파 IP
+  laptop_ip: "100.83.6.44"       # default: 시연 (노트북 Tailscale)
+  rpi_ip: "100.67.88.118"        # 라파 Tailscale
   video_port: 9999
   command_port: 9998
   telemetry_port: 9997
   video_chunk_size: 1400
+  modes:
+    dev-wired:
+      laptop_ip: "192.168.137.1"     # 데스크탑 ICS
+    dev-wireless:
+      laptop_ip: "100.92.46.121"     # 데스크탑 Tailscale
 
 camera:
   device_index: 0

@@ -170,9 +170,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='config/sim.yaml',
                         help='config YAML 경로')
+    parser.add_argument('--mode', choices=['dev-wired', 'dev-wireless'],
+                        default=None,
+                        help='네트워크 모드 (기본: 시연용)')
     args = parser.parse_args()
     
     config = load_config(ROOT / args.config)
+    
+    # --mode 옵션으로 laptop_ip 오버라이드
+    if args.mode:
+        mode_cfg = config.network.modes.get(args.mode, {})
+        if 'laptop_ip' in mode_cfg:
+            config.network.laptop_ip = mode_cfg['laptop_ip']
+            print(f"[Main] 네트워크 모드: {args.mode} (laptop_ip → {config.network.laptop_ip})")
+    
     print(f"[Main] Config 로드 완료 (mode={config.mode})")
     
     # ─── 모듈 초기화 ───
