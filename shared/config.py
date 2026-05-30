@@ -185,6 +185,7 @@ class Config:
     gui: GuiConfig
     safety: SafetyConfig
     simulation: Optional[SimulationConfig] = None  # real 모드에선 None
+    motor_pins: Optional[dict] = None              # 실기 GPIO 핀 매핑 (real 모드)
 
     @property
     def is_simulation(self) -> bool:
@@ -255,6 +256,9 @@ def _build_config(data: dict) -> Config:
     
     if 'simulation' in data and data['simulation']:
         config.simulation = SimulationConfig(**data['simulation'])
+    
+    if 'motor_pins' in data and data['motor_pins']:
+        config.motor_pins = data['motor_pins']
     
     return config
 

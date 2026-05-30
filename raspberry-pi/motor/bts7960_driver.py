@@ -4,20 +4,22 @@ BTS7960 Driver Wrapper (lgpio version)
 BTS7960 H-Bridge DC 모터 드라이버 (43A 듀얼 채널).
 회로도 기준: 좌측 3개 모터 병렬 (BTS#1), 우측 3개 모터 병렬 (BTS#2).
 
-[하드웨어 결선 — Dual PWM + EN 방식]
-RPWM + LPWM + EN 방식:
+[하드웨어 결선 — Dual PWM + Split EN 방식]
+RPWM + LPWM + R_EN + L_EN 방식 (분기 없이 라파에서 직결):
   - RPWM: 전진(우회전 H-bridge half) PWM 신호
   - LPWM: 후진(좌회전 H-bridge half) PWM 신호
-  - EN (R_EN+L_EN 묶음, Y분기로 한 핀에): 드라이버 enable HIGH
+  - R_EN, L_EN: 각각 라파 GPIO에 직결 (빵판 분기 X)
+    → 코드에서 항상 동시에 HIGH/LOW로 토글하여 묶음 효과
 
 운영 방식:
-  - 전진: RPWM=duty, LPWM=0,    EN=HIGH
-  - 후진: RPWM=0,    LPWM=duty, EN=HIGH
-  - 정지: RPWM=0,    LPWM=0,    EN=HIGH (브레이크) 또는 EN=LOW (코스트)
+  - 전진: RPWM=duty, LPWM=0,    R_EN=HIGH, L_EN=HIGH
+  - 후진: RPWM=0,    LPWM=duty, R_EN=HIGH, L_EN=HIGH
+  - 정지: RPWM=0,    LPWM=0,    R_EN=HIGH, L_EN=HIGH (브레이크)
+  - 코스트: R_EN=LOW, L_EN=LOW
 
-회로도 핀 (최종):
-- BTS#1 (좌측 3개 묶음): GPIO 18 (RPWM, 전진), GPIO 12 (LPWM, 후진), GPIO 23 (EN)
-- BTS#2 (우측 3개 묶음): GPIO 19 (RPWM, 전진), GPIO 13 (LPWM, 후진), GPIO 24 (EN)
+회로도 핀 (최종, 분기 없음):
+- BTS#1 (좌측 3개 묶음): GPIO 18 (RPWM), GPIO 12 (LPWM), GPIO 6 (R_EN), GPIO 16 (L_EN)
+- BTS#2 (우측 3개 묶음): GPIO 19 (RPWM), GPIO 13 (LPWM), GPIO 23 (R_EN), GPIO 24 (L_EN)
 
 [라이브러리]
 lgpio 사용 (Raspberry Pi OS Trixie 표준).
@@ -33,12 +35,12 @@ pigpio가 Trixie에서 deprecated 되어 lgpio가 표준이 됨.
 - 처음엔 lgpio.tx_pwm으로 통일 (SW PWM 효과적이라 충분)
 
 [사용]
-    bts = BTS7960Driver(rpwm_pin=18, lpwm_pin=12, en_pin=23)
-    bts.enable()                     # EN HIGH
+    bts = BTS7960Driver(rpwm_pin=18, lpwm_pin=12, r_en_pin=6, l_en_pin=16)
+    bts.enable()                     # R_EN, L_EN 둘 다 HIGH
     bts.set(duty=0.5, direction=1)   # 50% 전진
     bts.set(duty=0.3, direction=-1)  # 30% 후진
     bts.set(duty=0.0, direction=1)   # 정지
-    bts.disable()                    # EN LOW
+    bts.disable()                    # R_EN, L_EN 둘 다 LOW
     bts.shutdown()
 """
 
@@ -59,20 +61,23 @@ class BTS7960Driver:
     def __init__(self,
                  rpwm_pin: int,
                  lpwm_pin: int,
-                 en_pin: int,
+                 r_en_pin: int,
+                 l_en_pin: int,
                  frequency_hz: int = DEFAULT_PWM_FREQ_HZ,
                  chip: int = 0):
         """
         Args:
             rpwm_pin: 전진 PWM GPIO (BCM) — RPWM
             lpwm_pin: 후진 PWM GPIO (BCM) — LPWM
-            en_pin: Enable GPIO (BCM) — R_EN+L_EN 묶음
+            r_en_pin: R_EN GPIO (BCM) — 라파에서 직결
+            l_en_pin: L_EN GPIO (BCM) — 라파에서 직결
             frequency_hz: PWM 주파수
             chip: GPIO chip 번호 (라파4는 0)
         """
         self._rpwm_pin = rpwm_pin
         self._lpwm_pin = lpwm_pin
-        self._en_pin = en_pin
+        self._r_en_pin = r_en_pin
+        self._l_en_pin = l_en_pin
         self._freq = frequency_hz
         self._available = False
         self._chip = chip
@@ -91,14 +96,15 @@ class BTS7960Driver:
             # GPIO 설정 (모두 출력, 초기 LOW)
             lgpio.gpio_claim_output(h, rpwm_pin, 0)
             lgpio.gpio_claim_output(h, lpwm_pin, 0)
-            lgpio.gpio_claim_output(h, en_pin, 0)   # 시작은 disable 상태
+            lgpio.gpio_claim_output(h, r_en_pin, 0)   # 시작은 disable
+            lgpio.gpio_claim_output(h, l_en_pin, 0)
             
             # 초기 PWM 0%
             lgpio.tx_pwm(h, rpwm_pin, frequency_hz, 0.0)
             lgpio.tx_pwm(h, lpwm_pin, frequency_hz, 0.0)
             
             self._available = True
-            print(f"[BTS7960] 초기화 완료 (RPWM={rpwm_pin}, LPWM={lpwm_pin}, EN={en_pin}, {frequency_hz}Hz)")
+            print(f"[BTS7960] 초기화 완료 (RPWM={rpwm_pin}, LPWM={lpwm_pin}, R_EN={r_en_pin}, L_EN={l_en_pin}, {frequency_hz}Hz)")
         except ImportError as e:
             print(f"[BTS7960] lgpio 라이브러리 없음: {e}")
             print("[BTS7960] 설치: sudo apt install python3-lgpio")
@@ -110,16 +116,18 @@ class BTS7960Driver:
         return self._available
     
     def enable(self) -> None:
-        """드라이버 활성화 (EN HIGH)"""
+        """드라이버 활성화 (R_EN, L_EN 둘 다 HIGH)"""
         if not self._available:
             return
         try:
-            self._lgpio.gpio_write(BTS7960Driver._chip_handle, self._en_pin, 1)
+            h = BTS7960Driver._chip_handle
+            self._lgpio.gpio_write(h, self._r_en_pin, 1)
+            self._lgpio.gpio_write(h, self._l_en_pin, 1)
         except Exception as e:
             print(f"[BTS7960] enable 에러: {e}")
     
     def disable(self) -> None:
-        """드라이버 비활성화 (EN LOW) — 모터 free coast"""
+        """드라이버 비활성화 (R_EN, L_EN 둘 다 LOW) — 모터 free coast"""
         if not self._available:
             return
         try:
@@ -127,8 +135,9 @@ class BTS7960Driver:
             # PWM 먼저 0으로
             self._lgpio.tx_pwm(h, self._rpwm_pin, self._freq, 0.0)
             self._lgpio.tx_pwm(h, self._lpwm_pin, self._freq, 0.0)
-            # EN LOW
-            self._lgpio.gpio_write(h, self._en_pin, 0)
+            # EN 두 개 다 LOW
+            self._lgpio.gpio_write(h, self._r_en_pin, 0)
+            self._lgpio.gpio_write(h, self._l_en_pin, 0)
         except Exception as e:
             print(f"[BTS7960] disable 에러: {e}")
     
@@ -178,7 +187,8 @@ class BTS7960Driver:
             # 핀 free
             self._lgpio.gpio_free(h, self._rpwm_pin)
             self._lgpio.gpio_free(h, self._lpwm_pin)
-            self._lgpio.gpio_free(h, self._en_pin)
+            self._lgpio.gpio_free(h, self._r_en_pin)
+            self._lgpio.gpio_free(h, self._l_en_pin)
             
             # 마지막 인스턴스면 chip 닫기
             BTS7960Driver._refcount -= 1

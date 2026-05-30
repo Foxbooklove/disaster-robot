@@ -40,10 +40,12 @@ def create_motor_hal(config) -> MotorHAL:
                 "steer_channels": pins.get("steer_channels"),
                 "dc_left_rpwm_pin": pins.get("dc_left_rpwm_pin", 18),
                 "dc_left_lpwm_pin": pins.get("dc_left_lpwm_pin", 12),
-                "dc_left_en_pin": pins.get("dc_left_en_pin", 23),
+                "dc_left_r_en_pin": pins.get("dc_left_r_en_pin", 6),
+                "dc_left_l_en_pin": pins.get("dc_left_l_en_pin", 16),
                 "dc_right_rpwm_pin": pins.get("dc_right_rpwm_pin", 19),
                 "dc_right_lpwm_pin": pins.get("dc_right_lpwm_pin", 13),
-                "dc_right_en_pin": pins.get("dc_right_en_pin", 24),
+                "dc_right_r_en_pin": pins.get("dc_right_r_en_pin", 23),
+                "dc_right_l_en_pin": pins.get("dc_right_l_en_pin", 24),
             })
         # None 값 제거
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
