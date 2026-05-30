@@ -97,9 +97,9 @@ def main():
         print(f"라이브러리 없음: {e}")
         return
     
-    # 회로도 기준 핀 (lgpio가 chip handle 자동 공유)
-    left = BTS7960Driver(rpwm_pin=18, lpwm_pin=12, en_pin=23)
-    right = BTS7960Driver(rpwm_pin=19, lpwm_pin=13, en_pin=24)
+    # 회로도 기준 핀 (분기 없이 R_EN/L_EN 각각 직결, lgpio chip handle 자동 공유)
+    left = BTS7960Driver(rpwm_pin=18, lpwm_pin=12, r_en_pin=6, l_en_pin=16)
+    right = BTS7960Driver(rpwm_pin=19, lpwm_pin=13, r_en_pin=23, l_en_pin=24)
     
     if not left.is_available or not right.is_available:
         print("BTS7960 초기화 실패")
