@@ -139,13 +139,15 @@ class GpioMotorHAL(MotorHAL):
                 l_en_pin=dc_right_l_en_pin,
             )
             
-            # 모두 정상 동작 확인
-            if (self._pca.is_available and
-                self._dc_left.is_available and
+            # DC 모터는 필수, PCA9685(서보)는 옵션
+            if (self._dc_left.is_available and
                 self._dc_right.is_available):
                 
-                # 초기 상태: 서보 중립
-                self._set_all_servos_center()
+                # PCA9685 있으면 서보 중립으로 (없으면 스킵)
+                if self._pca.is_available:
+                    self._set_all_servos_center()
+                else:
+                    print("[GpioMotorHAL] ⚠️ PCA9685 없음 — 서보 제어 비활성, DC 모터만 동작")
                 
                 # BTS 활성화 (EN HIGH) - 시연 중엔 항상 활성, emergency_stop 시만 disable
                 self._dc_left.enable()
@@ -155,11 +157,11 @@ class GpioMotorHAL(MotorHAL):
                 if verbose:
                     print("[GpioMotorHAL] 초기화 완료")
             else:
-                print("[GpioMotorHAL] 일부 드라이버 사용 불가:")
-                print(f"  PCA9685: {self._pca.is_available}")
+                print("[GpioMotorHAL] DC 모터 드라이버 사용 불가:")
+                print(f"  PCA9685: {self._pca.is_available} (옵션)")
                 print(f"  DC Left: {self._dc_left.is_available}")
                 print(f"  DC Right: {self._dc_right.is_available}")
-                raise RuntimeError("드라이버 초기화 실패")
+                raise RuntimeError("DC 모터 드라이버 초기화 실패")
                 
         except Exception as e:
             print(f"[GpioMotorHAL] 초기화 실패: {e}")
@@ -241,6 +243,10 @@ class GpioMotorHAL(MotorHAL):
         if not self._initialized:
             return
         
+        # PCA9685 없으면 서보 명령 무시
+        if self._pca is None or not self._pca.is_available:
+            return
+        
         # 조향 가능한 4개 바퀴만 추출 (FL, FR, RL, RR)
         for ch_idx, wheel_idx in enumerate(STEERABLE_WHEELS):
             ch = self._steer_channels[ch_idx]
@@ -259,6 +265,10 @@ class GpioMotorHAL(MotorHAL):
         self._state.last_update_time = time.monotonic()
         
         if not self._initialized:
+            return
+        
+        # PCA9685 없으면 서보 명령 무시
+        if self._pca is None or not self._pca.is_available:
             return
         
         for i, size in enumerate(sizes):
