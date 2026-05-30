@@ -55,7 +55,8 @@ echo.
 
 REM ---- Launch RPi main.py (separate window) ----
 echo [1/2] Starting RPi main...
-start "RPi Main" cmd /k "ssh -t %RPI_USER%@%RPI_HOST% ""cd %RPI_PROJECT_DIR% && source %RPI_VENV% && python raspberry-pi/main.py --config %CONFIG% %MODE_ARG%"""
+set REMOTE_CMD=cd %RPI_PROJECT_DIR% ^&^& source %RPI_VENV% ^&^& python raspberry-pi/main.py --config %CONFIG% %MODE_ARG%
+start "RPi Main" cmd /k ssh -t %RPI_USER%@%RPI_HOST% "%REMOTE_CMD%"
 
 REM ---- Wait for RPi to be ready ----
 echo Waiting 3 seconds for RPi...
