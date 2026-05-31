@@ -146,7 +146,7 @@ class OpticalFlowEstimator:
         velocity = flow_pixel_per_sec_y * self.scale  # 전진 속도 [m/s]
         
         magnitude = np.sqrt(mean_vx ** 2 + mean_vy ** 2)
-        valid = magnitude > self.valid_threshold
+        valid = bool(magnitude > self.valid_threshold)
         
         # 상태 저장
         self.last_flow_pixels = (flow_pixel_per_sec_x, flow_pixel_per_sec_y)
