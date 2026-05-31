@@ -119,6 +119,18 @@ class TelemetryMessage:
     pose: Dict[str, float] = field(default_factory=lambda: {"x": 0.0, "y": 0.0, "psi": 0.0})
     velocity: Dict[str, float] = field(default_factory=lambda: {"v_x": 0.0, "v_y": 0.0, "yaw_rate": 0.0})
     
+    # Estimation 상세 (디버깅/시각화용)
+    # odom: dead-reckoning, ekf: sensor fusion, measurements: 각 측정 raw값
+    estimation: Dict[str, Any] = field(default_factory=lambda: {
+        "odom": {"x": 0.0, "y": 0.0, "psi": 0.0},
+        "ekf": {"x": 0.0, "y": 0.0, "psi": 0.0, "v": 0.0, "omega": 0.0},
+        "measurements": {
+            "v_left": 0.0, "v_right": 0.0,
+            "v_encoder": 0.0, "omega_encoder": 0.0,
+            "v_optical": 0.0, "optical_valid": False,
+        },
+    })
+    
     # 현재 상태
     steering_mode: str = "Ackermann"
     wheel_size: Dict[str, float] = field(default_factory=lambda: {"front": 0.5, "middle": 0.5, "rear": 0.5})

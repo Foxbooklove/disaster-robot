@@ -199,3 +199,179 @@ class RobotPoseEKF:
         while angle < -math.pi:
             angle += 2 * math.pi
         return angle
+
+
+# ════════════════════════════════════════════════════════════════
+# 5-state Differential Robot EKF (엔코더 + 광학흐름 fusion)
+# ════════════════════════════════════════════════════════════════
+
+class DifferentialRobotEKF:
+    """
+    Differential drive 로봇 EKF (5-state).
+    
+    상태 x = [x, y, ψ, v, ω]ᵀ
+        - x, y: 월드 위치 [m]
+        - ψ:    yaw 각도 [rad]
+        - v:    선속도 [m/s]
+        - ω:    각속도 [rad/s]
+    
+    제어 입력 없음 (속도가 state에 포함됨).
+    
+    Process model (constant velocity 가정 + process noise로 가속 흡수):
+        x_{k+1} = x_k + v · cos(ψ) · dt
+        y_{k+1} = y_k + v · sin(ψ) · dt
+        ψ_{k+1} = ψ_k + ω · dt
+        v_{k+1} = v_k                     (실제 가속은 noise로 흡수)
+        ω_{k+1} = ω_k
+    
+    측정 모델 (두 가지, 별도 update):
+        엔코더:   z_enc = [v_enc, ω_enc]ᵀ            H_enc는 v, ω 직접 측정
+        광학흐름: z_flow = v_flow                     H_flow는 v 직접 측정
+    
+    [왜 EKF인가?]
+    - process model에 sin/cos 비선형 → KF 불가
+    - 측정 모델 자체는 선형 (v, ω 직접 측정)
+    - 두 측정원의 신뢰도(R)에 따라 가중평균
+    
+    [신뢰도 (R)]
+    - 엔코더: 슬립 없으면 정확. 슬립 발생 시 R 증가시켜야 정상이지만,
+              EKF는 고정 R 사용 → 그래서 광학흐름을 추가 측정원으로
+    - 광학흐름: 캘리브레이션 전엔 부정확. R 크게 잡아두면 영향 작음.
+    """
+    
+    def __init__(self,
+                 dt: float = 0.02,
+                 process_noise_std=(0.01, 0.01, 0.01, 0.1, 0.1),
+                 encoder_noise_std=(0.05, 0.05),
+                 optical_flow_noise_std=0.5,
+                 x0: Optional[np.ndarray] = None):
+        """
+        Args:
+            dt: 기본 timestep [s]. predict 호출 시 override 가능
+            process_noise_std: [σ_x, σ_y, σ_ψ, σ_v, σ_ω] process noise 표준편차
+                                (큰 값일수록 모델을 덜 믿음)
+            encoder_noise_std: [σ_v_enc, σ_ω_enc] 엔코더 measurement noise
+                                (작을수록 엔코더를 더 믿음)
+            optical_flow_noise_std: σ_v_flow 광학흐름 measurement noise
+                                     (캘리브레이션 전엔 크게 잡음)
+            x0: 초기 상태 (기본 0)
+        """
+        self.dt = dt
+        self.n = 5
+        
+        self.Q = np.diag([s ** 2 for s in process_noise_std])
+        self.R_encoder = np.diag([s ** 2 for s in encoder_noise_std])
+        self.R_optical = np.array([[optical_flow_noise_std ** 2]])
+        
+        self.x = x0.copy() if x0 is not None else np.zeros(self.n)
+        self.P = np.eye(self.n) * 0.01
+    
+    def predict(self, dt: Optional[float] = None) -> np.ndarray:
+        """예측 단계.
+        
+        Args:
+            dt: 이번 스텝 timestep. None이면 기본값 사용.
+        """
+        dt = dt if dt is not None else self.dt
+        x, y, psi, v, omega = self.x
+        
+        # 비선형 상태 전이
+        x_new = x + v * math.cos(psi) * dt
+        y_new = y + v * math.sin(psi) * dt
+        psi_new = self._normalize(psi + omega * dt)
+        v_new = v
+        omega_new = omega
+        self.x = np.array([x_new, y_new, psi_new, v_new, omega_new])
+        
+        # Jacobian F = ∂f/∂x
+        F = np.eye(self.n)
+        F[0, 2] = -v * math.sin(psi) * dt   # ∂x/∂ψ
+        F[0, 3] = math.cos(psi) * dt        # ∂x/∂v
+        F[1, 2] = v * math.cos(psi) * dt    # ∂y/∂ψ
+        F[1, 3] = math.sin(psi) * dt        # ∂y/∂v
+        F[2, 4] = dt                         # ∂ψ/∂ω
+        
+        # 공분산 예측
+        self.P = F @ self.P @ F.T + self.Q
+        
+        return self.x.copy()
+    
+    def update_encoder(self, v_enc: float, omega_enc: float) -> np.ndarray:
+        """엔코더 측정으로 v, ω 갱신.
+        
+        Args:
+            v_enc: 엔코더로 측정한 선속도 [m/s]
+            omega_enc: 엔코더로 측정한 각속도 [rad/s]
+        """
+        z = np.array([v_enc, omega_enc])
+        # H: v, ω만 직접 측정 (state index 3, 4)
+        H = np.array([
+            [0, 0, 0, 1, 0],
+            [0, 0, 0, 0, 1],
+        ])
+        
+        # Innovation
+        z_pred = H @ self.x
+        y = z - z_pred
+        # Innovation covariance
+        S = H @ self.P @ H.T + self.R_encoder
+        # Kalman gain
+        K = self.P @ H.T @ np.linalg.inv(S)
+        # 상태/공분산 갱신
+        self.x = self.x + K @ y
+        self.x[2] = self._normalize(self.x[2])
+        I = np.eye(self.n)
+        self.P = (I - K @ H) @ self.P
+        
+        return self.x.copy()
+    
+    def update_optical_flow(self, v_flow: float) -> np.ndarray:
+        """광학 흐름 측정으로 v 갱신.
+        
+        Args:
+            v_flow: 광학흐름으로 측정한 선속도 [m/s]
+        """
+        z = np.array([v_flow])
+        # H: v만 측정 (state index 3)
+        H = np.array([[0, 0, 0, 1, 0]])
+        
+        z_pred = H @ self.x
+        y = z - z_pred
+        S = H @ self.P @ H.T + self.R_optical
+        K = self.P @ H.T @ np.linalg.inv(S)
+        self.x = self.x + K @ y.flatten()
+        self.x[2] = self._normalize(self.x[2])
+        I = np.eye(self.n)
+        self.P = (I - K @ H) @ self.P
+        
+        return self.x.copy()
+    
+    @property
+    def state(self) -> np.ndarray:
+        return self.x.copy()
+    
+    @property
+    def covariance(self) -> np.ndarray:
+        return self.P.copy()
+    
+    def state_dict(self) -> dict:
+        """편의용 dict 반환 (텔레메트리 송신용)."""
+        return {
+            'x': float(self.x[0]),
+            'y': float(self.x[1]),
+            'psi': float(self.x[2]),
+            'v': float(self.x[3]),
+            'omega': float(self.x[4]),
+        }
+    
+    def reset(self, x0: Optional[np.ndarray] = None) -> None:
+        self.x = x0.copy() if x0 is not None else np.zeros(self.n)
+        self.P = np.eye(self.n) * 0.01
+    
+    @staticmethod
+    def _normalize(angle: float) -> float:
+        while angle > math.pi:
+            angle -= 2 * math.pi
+        while angle < -math.pi:
+            angle += 2 * math.pi
+        return angle

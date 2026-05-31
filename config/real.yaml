@@ -33,6 +33,23 @@ motor_pins:
   dc_right_r_en_pin: 23   # 라파 핀 16 - R_EN 직결
   dc_right_l_en_pin: 24   # 라파 핀 18 - L_EN 직결
 
+encoder_pins:
+  # JGB37-520B (12V 107RPM, 1:90, 11 PPR) 기준
+  # 좌측 미들 (ML) 엔코더
+  encoder_ml_c1_pin: 17     # 라파 핀 11 - A상
+  encoder_ml_c2_pin: 27     # 라파 핀 13 - B상
+  # 우측 미들 (MR) 엔코더
+  encoder_mr_c1_pin: 22     # 라파 핀 15 - A상
+  encoder_mr_c2_pin: 5      # 라파 핀 29 - B상
+  # 분해능
+  encoder_counts_per_rev: 3960    # 11 × 4 (quadrature) × 90 (gear)
+  encoder_wheel_circumference: 0.2042   # π × 0.065m (65mm 바퀴 가정)
+  # 방향 보정 (모터 결선 방향 반대면 true)
+  encoder_invert_left: false
+  encoder_invert_right: false
+
+optical_flow_scale: 0.001   # pixel/sec → m/s. 캘리브레이션 후 업데이트
+
 camera:
   device_index: 0
   width: 640

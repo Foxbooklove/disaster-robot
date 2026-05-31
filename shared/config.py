@@ -186,6 +186,8 @@ class Config:
     safety: SafetyConfig
     simulation: Optional[SimulationConfig] = None  # real 모드에선 None
     motor_pins: Optional[dict] = None              # 실기 GPIO 핀 매핑 (real 모드)
+    encoder_pins: Optional[dict] = None            # 엔코더 핀/분해능 (real 모드)
+    optical_flow_scale: float = 0.001              # px/sec → m/s 변환계수 (캘리브레이션 전 placeholder)
 
     @property
     def is_simulation(self) -> bool:
@@ -259,6 +261,12 @@ def _build_config(data: dict) -> Config:
     
     if 'motor_pins' in data and data['motor_pins']:
         config.motor_pins = data['motor_pins']
+    
+    if 'encoder_pins' in data and data['encoder_pins']:
+        config.encoder_pins = data['encoder_pins']
+    
+    if 'optical_flow_scale' in data:
+        config.optical_flow_scale = float(data['optical_flow_scale'])
     
     return config
 
