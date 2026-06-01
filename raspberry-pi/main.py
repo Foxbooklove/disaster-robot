@@ -299,6 +299,7 @@ def main():
                     else:
                         # 6개 사이즈로 확장: 앞 2개=front, 중간 2개=middle, 뒤 2개=rear
                         sizes = [cmd.front, cmd.front, cmd.middle, cmd.middle, cmd.rear, cmd.rear]
+                    print(f"[Main] WheelSize 수신: {[f'{s:.2f}' for s in sizes]}")
                     motor.set_wheel_sizes(sizes)
                     robot_state['wheel_sizes'] = sizes
                     # 그룹 평균값도 같이 저장 (디스플레이용)

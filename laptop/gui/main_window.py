@@ -257,6 +257,7 @@ class MainWindow(QMainWindow):
         # 그룹 평균도 같이 업데이트 (디스플레이용)
         self.wheel_size_front = (self.wheel_sizes[0] + self.wheel_sizes[1]) / 2
         self.wheel_size_rear = (self.wheel_sizes[4] + self.wheel_sizes[5]) / 2
+        print(f"[GUI] send_wheel_sizes: {[f'{s:.2f}' for s in self.wheel_sizes]}")
         self.comm.send_wheel_sizes(self.wheel_sizes)
     
     def _on_input_tick(self):
