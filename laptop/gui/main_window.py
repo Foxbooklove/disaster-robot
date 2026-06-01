@@ -48,11 +48,27 @@ DISCRETE_KEY_MAP = {
     Qt.Key_M: 'mode',
     Qt.Key_H: 'toggle_help',
     Qt.Key_Space: 'stop',
+    # 기존 그룹 키 (Front, Rear 동시) - 호환성 유지
     Qt.Key_R: 'wheel_size_front_up',
     Qt.Key_F: 'wheel_size_front_down',
     Qt.Key_T: 'wheel_size_rear_up',
     Qt.Key_G: 'wheel_size_rear_down',
+    # 6개 바퀴 개별 선택 (Numpad)
+    Qt.Key_7: 'select_FL',
+    Qt.Key_8: 'select_FR',
+    Qt.Key_4: 'select_ML',
+    Qt.Key_5: 'select_MR',
+    Qt.Key_1: 'select_RL',
+    Qt.Key_2: 'select_RR',
+    Qt.Key_0: 'select_ALL',
+    # 선택된 바퀴 사이즈 조절
+    Qt.Key_Plus: 'selected_wheel_up',
+    Qt.Key_Equal: 'selected_wheel_up',    # = 키 (Shift 없을 때)
+    Qt.Key_Minus: 'selected_wheel_down',
 }
+
+# 바퀴 인덱스 (HAL과 동일)
+WHEEL_INDEX = {'FL': 0, 'FR': 1, 'ML': 2, 'MR': 3, 'RL': 4, 'RR': 5}
 
 STEERING_MODES = ["Ackermann", "SkidSteer", "Crab", "DoubleAckermann"]
 
@@ -81,6 +97,8 @@ class MainWindow(QMainWindow):
         self.steer = 0.0
         self.wheel_size_front = 0.5
         self.wheel_size_rear = 0.5
+        self.wheel_sizes = [0.5] * 6        # [FL, FR, ML, MR, RL, RR]
+        self.selected_wheel = None          # 인덱스 0~5 또는 None(전체)
         self.mode_idx = 0
         self.show_help = True
         
@@ -192,16 +210,54 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("STOP", 1000)
         elif action == 'wheel_size_front_up':
             self.wheel_size_front = min(1.0, self.wheel_size_front + self.SIZE_STEP)
-            self.comm.send_wheel_size(self.wheel_size_front, self.wheel_size_rear)
+            self.wheel_sizes[WHEEL_INDEX['FL']] = self.wheel_size_front
+            self.wheel_sizes[WHEEL_INDEX['FR']] = self.wheel_size_front
+            self.comm.send_wheel_sizes(self.wheel_sizes)
         elif action == 'wheel_size_front_down':
             self.wheel_size_front = max(0.0, self.wheel_size_front - self.SIZE_STEP)
-            self.comm.send_wheel_size(self.wheel_size_front, self.wheel_size_rear)
+            self.wheel_sizes[WHEEL_INDEX['FL']] = self.wheel_size_front
+            self.wheel_sizes[WHEEL_INDEX['FR']] = self.wheel_size_front
+            self.comm.send_wheel_sizes(self.wheel_sizes)
         elif action == 'wheel_size_rear_up':
             self.wheel_size_rear = min(1.0, self.wheel_size_rear + self.SIZE_STEP)
-            self.comm.send_wheel_size(self.wheel_size_front, self.wheel_size_rear)
+            self.wheel_sizes[WHEEL_INDEX['RL']] = self.wheel_size_rear
+            self.wheel_sizes[WHEEL_INDEX['RR']] = self.wheel_size_rear
+            self.comm.send_wheel_sizes(self.wheel_sizes)
         elif action == 'wheel_size_rear_down':
             self.wheel_size_rear = max(0.0, self.wheel_size_rear - self.SIZE_STEP)
-            self.comm.send_wheel_size(self.wheel_size_front, self.wheel_size_rear)
+            self.wheel_sizes[WHEEL_INDEX['RL']] = self.wheel_size_rear
+            self.wheel_sizes[WHEEL_INDEX['RR']] = self.wheel_size_rear
+            self.comm.send_wheel_sizes(self.wheel_sizes)
+        # ─── 6개 바퀴 개별 선택 ───
+        elif action and action.startswith('select_'):
+            target = action.split('_')[1]   # FL, FR, ML, MR, RL, RR, ALL
+            if target == 'ALL':
+                self.selected_wheel = None
+                self.statusBar().showMessage("Selected: ALL (6 wheels)", 2000)
+            else:
+                self.selected_wheel = WHEEL_INDEX[target]
+                self.statusBar().showMessage(f"Selected: {target} (size={self.wheel_sizes[self.selected_wheel]:.2f})", 2000)
+        elif action == 'selected_wheel_up':
+            self._adjust_selected_wheel(+self.SIZE_STEP)
+        elif action == 'selected_wheel_down':
+            self._adjust_selected_wheel(-self.SIZE_STEP)
+    
+    def _adjust_selected_wheel(self, delta: float):
+        """선택된 바퀴(또는 전체) 사이즈 조절."""
+        if self.selected_wheel is None:
+            # 전체 동시 조절
+            new_sizes = [max(0.0, min(1.0, s + delta)) for s in self.wheel_sizes]
+            self.wheel_sizes = new_sizes
+            self.statusBar().showMessage(f"ALL wheels → {new_sizes[0]:.2f}", 1000)
+        else:
+            i = self.selected_wheel
+            self.wheel_sizes[i] = max(0.0, min(1.0, self.wheel_sizes[i] + delta))
+            name = list(WHEEL_INDEX.keys())[i]
+            self.statusBar().showMessage(f"{name} → {self.wheel_sizes[i]:.2f}", 1000)
+        # 그룹 평균도 같이 업데이트 (디스플레이용)
+        self.wheel_size_front = (self.wheel_sizes[0] + self.wheel_sizes[1]) / 2
+        self.wheel_size_rear = (self.wheel_sizes[4] + self.wheel_sizes[5]) / 2
+        self.comm.send_wheel_sizes(self.wheel_sizes)
     
     def _on_input_tick(self):
         """연속 입력 (W/A/S/D) 처리"""

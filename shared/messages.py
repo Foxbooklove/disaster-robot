@@ -67,16 +67,17 @@ class DriveCommand:
 class WheelSizeCommand:
     """바퀴 사이즈 변경.
     
-    회로도 기준 6개 변형 서보 (각 바퀴마다). 단순화를 위해 GUI에선
-    앞/뒤 두 그룹으로만 조작하고, 라파에서 6개 채널에 분배.
+    각 바퀴 독립 제어 (sizes 6개) 또는 그룹 제어 (front/middle/rear) 둘 다 지원.
+    sizes가 None이 아니면 우선 사용, 아니면 front/middle/rear로 6개 확장.
     
     sizes = [FL, FR, ML, MR, RL, RR] (선택, 6개)
-    front, rear: 단순 인터페이스 (앞 3개, 뒤 3개에 같은 값)
+    front, middle, rear: 단순 인터페이스 (좌우 같은 값)
     """
     type: str = MessageType.WHEEL_SIZE.value
-    front: float = 0.5       # [0, 1] 앞 3개 (FL, FR) 같은 값
-    rear: float = 0.5        # [0, 1] 뒤 3개 (RL, RR) 같은 값
+    front: float = 0.5       # [0, 1] 앞 (FL, FR)
+    rear: float = 0.5        # [0, 1] 뒤 (RL, RR)
     middle: float = 0.5      # [0, 1] 중간 (ML, MR)
+    sizes: Optional[List[float]] = None   # [FL, FR, ML, MR, RL, RR] - 비대칭 제어용
 
 
 @dataclass
@@ -118,18 +119,6 @@ class TelemetryMessage:
     # 자세 추정 (odometry 또는 EKF)
     pose: Dict[str, float] = field(default_factory=lambda: {"x": 0.0, "y": 0.0, "psi": 0.0})
     velocity: Dict[str, float] = field(default_factory=lambda: {"v_x": 0.0, "v_y": 0.0, "yaw_rate": 0.0})
-    
-    # Estimation 상세 (디버깅/시각화용)
-    # odom: dead-reckoning, ekf: sensor fusion, measurements: 각 측정 raw값
-    estimation: Dict[str, Any] = field(default_factory=lambda: {
-        "odom": {"x": 0.0, "y": 0.0, "psi": 0.0},
-        "ekf": {"x": 0.0, "y": 0.0, "psi": 0.0, "v": 0.0, "omega": 0.0},
-        "measurements": {
-            "v_left": 0.0, "v_right": 0.0,
-            "v_encoder": 0.0, "omega_encoder": 0.0,
-            "v_optical": 0.0, "optical_valid": False,
-        },
-    })
     
     # 현재 상태
     steering_mode: str = "Ackermann"

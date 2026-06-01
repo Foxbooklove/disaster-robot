@@ -47,13 +47,10 @@ from shared.messages import (
 )
 
 from camera import create_camera
-from motor import create_motor_hal, create_encoders
+from motor import create_motor_hal
 from sensor import create_ultrasonic_hal
 from kinematics import KinematicsManager
-from estimation import (
-    DifferentialOdometry, WheelEncoderData,
-    EstimationManager, OpticalFlowEstimator,
-)
+from estimation import DifferentialOdometry, WheelEncoderData
 
 
 # ════════════════════════════════════════════════════════════════
@@ -61,36 +58,19 @@ from estimation import (
 # ════════════════════════════════════════════════════════════════
 
 def video_loop(camera, video_sender: VideoSender, jpeg_quality: int,
-               send_size: tuple, stop_event: threading.Event,
-               optical_flow=None, estimation=None):
-    """카메라 프레임을 JPEG으로 압축해서 UDP 청크로 송신.
-    
-    부수적으로 광학 흐름도 계산해서 EstimationManager에 전달.
-    """
+               send_size: tuple, stop_event: threading.Event):
+    """카메라 프레임을 JPEG으로 압축해서 UDP 청크로 송신"""
     print("[Video] 영상 송신 스레드 시작")
     sw, sh = send_size
     frame_count = 0
     last_log_time = time.monotonic()
     fps_count = 0
-    optical_skip_count = 0
     
     while not stop_event.is_set():
         frame = camera.read()
         if frame is None:
             time.sleep(0.05)
             continue
-        
-        # 광학 흐름 (원본 프레임에서, 다운스케일 전)
-        # 매 프레임 돌리면 부담이라 2프레임마다 한 번
-        if optical_flow is not None and estimation is not None and optical_flow.is_available:
-            optical_skip_count += 1
-            if optical_skip_count >= 2:
-                optical_skip_count = 0
-                try:
-                    v_flow, valid = optical_flow.update(frame)
-                    estimation.on_optical_flow(v_flow, valid)
-                except Exception as e:
-                    print(f"[OpticalFlow] 에러: {e}")
         
         # 송신용 다운스케일
         if frame.shape[1] != sw or frame.shape[0] != sh:
@@ -125,13 +105,8 @@ def video_loop(camera, video_sender: VideoSender, jpeg_quality: int,
 # ════════════════════════════════════════════════════════════════
 
 def telemetry_loop(telemetry_conn, ultrasonic_hal, robot_state,
-                   ultrasonic_rate: float, stop_event: threading.Event,
-                   estimation=None):
-    """센서 + 자세 추정 → 텔레메트리 메시지 주기 송신.
-    
-    Args:
-        estimation: EstimationManager (None이면 estimation 필드 비움)
-    """
+                   ultrasonic_rate: float, stop_event: threading.Event):
+    """센서 + 자세 추정 → 텔레메트리 메시지 주기 송신"""
     print("[Telemetry] 텔레메트리 송신 스레드 시작")
     interval = 1.0 / ultrasonic_rate
     
@@ -144,22 +119,6 @@ def telemetry_loop(telemetry_conn, ultrasonic_hal, robot_state,
         except Exception as e:
             print(f"[Telemetry] 센서 읽기 실패: {e}")
             us_readings = []
-        
-        # Estimation 상세 정보
-        if estimation is not None:
-            est = estimation.state
-            estimation_dict = {
-                "odom": {"x": est.odom_x, "y": est.odom_y, "psi": est.odom_psi},
-                "ekf": {"x": est.ekf_x, "y": est.ekf_y, "psi": est.ekf_psi,
-                        "v": est.ekf_v, "omega": est.ekf_omega},
-                "measurements": {
-                    "v_left": est.v_left, "v_right": est.v_right,
-                    "v_encoder": est.v_encoder, "omega_encoder": est.omega_encoder,
-                    "v_optical": est.v_optical, "optical_valid": est.optical_valid,
-                },
-            }
-        else:
-            estimation_dict = None
         
         # 텔레메트리 메시지 구성
         msg = TelemetryMessage(
@@ -174,7 +133,6 @@ def telemetry_loop(telemetry_conn, ultrasonic_hal, robot_state,
                 "v_y": robot_state['velocity'][1],
                 "yaw_rate": robot_state['velocity'][2],
             },
-            estimation=estimation_dict if estimation_dict else TelemetryMessage().estimation,
             steering_mode=robot_state['steering_mode'],
             wheel_size={
                 "front": robot_state['wheel_size_front'],
@@ -235,22 +193,6 @@ def main():
     kinematics_mgr = KinematicsManager(config.robot)
     odometry = DifferentialOdometry(track_width=config.robot.track)
     
-    # 엔코더 + 추정 매니저 (실기 모드일 때만 실제 엔코더, 그 외엔 None)
-    encoder_left, encoder_right = create_encoders(config)
-    estimation = EstimationManager(
-        encoder_left=encoder_left,
-        encoder_right=encoder_right,
-        track_width=config.robot.track,
-        dt=0.02,
-    )
-    has_real_encoders = estimation.has_real_encoders
-    print(f"[Main] 엔코더: {'실기' if has_real_encoders else '시뮬 (명령 속도 기반)'}")
-    
-    # 광학흐름 추정기 (영상 송신 스레드에서 호출)
-    optical_flow = OpticalFlowEstimator(
-        scale=getattr(config, "optical_flow_scale", 0.001),  # 캘 전 placeholder
-    )
-    
     # 통신 - 노트북에 연결 시도
     laptop_ip = config.network.laptop_ip
     
@@ -294,6 +236,7 @@ def main():
         'wheel_size_front': config.robot.wheel.radius_default / config.robot.wheel.radius_max,
         'wheel_size_middle': config.robot.wheel.radius_default / config.robot.wheel.radius_max,
         'wheel_size_rear': config.robot.wheel.radius_default / config.robot.wheel.radius_max,
+        'wheel_sizes': [config.robot.wheel.radius_default / config.robot.wheel.radius_max] * 6,  # [FL,FR,ML,MR,RL,RR]
         'last_command_time': time.monotonic(),
     }
     
@@ -306,8 +249,7 @@ def main():
     video_thread = threading.Thread(
         target=video_loop,
         args=(camera, video_sender, config.camera.jpeg_quality,
-              (config.camera.send_width, config.camera.send_height), stop_event,
-              optical_flow, estimation),
+              (config.camera.send_width, config.camera.send_height), stop_event),
         daemon=True,
     )
     video_thread.start()
@@ -315,8 +257,7 @@ def main():
     telemetry_thread = threading.Thread(
         target=telemetry_loop,
         args=(tele_sock, ultrasonic, robot_state,
-              config.sensors.ultrasonic.update_rate, stop_event,
-              estimation),
+              config.sensors.ultrasonic.update_rate, stop_event),
         daemon=True,
     )
     telemetry_thread.start()
@@ -352,12 +293,18 @@ def main():
                         'cmd': cmd,
                     })
                 elif isinstance(cmd, WheelSizeCommand):
-                    # 6개 사이즈로 확장: 앞 2개=front, 중간 2개=middle, 뒤 2개=rear
-                    sizes = [cmd.front, cmd.front, cmd.middle, cmd.middle, cmd.rear, cmd.rear]
+                    # sizes가 명시되면 우선 사용 (비대칭 제어), 아니면 그룹 확장
+                    if cmd.sizes is not None and len(cmd.sizes) == 6:
+                        sizes = list(cmd.sizes)
+                    else:
+                        # 6개 사이즈로 확장: 앞 2개=front, 중간 2개=middle, 뒤 2개=rear
+                        sizes = [cmd.front, cmd.front, cmd.middle, cmd.middle, cmd.rear, cmd.rear]
                     motor.set_wheel_sizes(sizes)
-                    robot_state['wheel_size_front'] = cmd.front
-                    robot_state['wheel_size_middle'] = cmd.middle
-                    robot_state['wheel_size_rear'] = cmd.rear
+                    robot_state['wheel_sizes'] = sizes
+                    # 그룹 평균값도 같이 저장 (디스플레이용)
+                    robot_state['wheel_size_front'] = (sizes[0] + sizes[1]) / 2
+                    robot_state['wheel_size_middle'] = (sizes[2] + sizes[3]) / 2
+                    robot_state['wheel_size_rear'] = (sizes[4] + sizes[5]) / 2
                 elif isinstance(cmd, SteeringModeCommand):
                     if kinematics_mgr.set_mode(cmd.mode):
                         robot_state['steering_mode'] = cmd.mode
@@ -389,25 +336,22 @@ def main():
             motor.set_wheel_velocities(velocities)
             motor.set_steer_angles(steer_angles)
             
-            # ─── Estimation 업데이트 (엔코더 + EKF) ───
+            # ─── Odometry 업데이트 ───
+            # 시뮬에선 명령 속도를 그대로 사용 (실제론 엔코더 사용)
             from kinematics import FL, FR, ML, MR, RL, RR
-            # 시뮬 모드 fallback용 명령 속도 (실기엔 안 쓰임)
+            # 좌측 평균 (FL, ML, RL), 우측 평균 (FR, MR, RR)
             v_left_avg = (velocities[FL] + velocities[ML] + velocities[RL]) / 3
             v_right_avg = (velocities[FR] + velocities[MR] + velocities[RR]) / 3
             
             dt = 0.02  # 메인 루프 주기 가정
-            est_state = estimation.step(
-                dt=dt,
-                v_left_sim=v_left_avg,
-                v_right_sim=v_right_avg,
-            )
+            encoder = WheelEncoderData(d_left=v_left_avg * dt, d_right=v_right_avg * dt)
+            odom_state = odometry.update(encoder)
             
-            # GUI에 보낼 pose/velocity (EKF 결과 사용)
-            robot_state['pose'][0] = est_state.ekf_x
-            robot_state['pose'][1] = est_state.ekf_y
-            robot_state['pose'][2] = est_state.ekf_psi
-            robot_state['velocity'][0] = est_state.ekf_v
-            robot_state['velocity'][2] = est_state.ekf_omega
+            robot_state['pose'][0] = odom_state.x
+            robot_state['pose'][1] = odom_state.y
+            robot_state['pose'][2] = odom_state.psi
+            robot_state['velocity'][0] = (v_left_avg + v_right_avg) / 2  # v_x 근사
+            robot_state['velocity'][2] = (v_right_avg - v_left_avg) / config.robot.track  # yaw rate
             
             # 루프 주기 유지
             elapsed = time.monotonic() - loop_start
@@ -421,11 +365,6 @@ def main():
         stop_event.set()
         motor.emergency_stop()
         motor.shutdown()
-        # 엔코더 정리
-        if encoder_left is not None and encoder_left.is_available:
-            encoder_left.shutdown()
-        if encoder_right is not None and encoder_right.is_available:
-            encoder_right.shutdown()
         camera.release()
         video_sender.close()
         cmd_sock.close()

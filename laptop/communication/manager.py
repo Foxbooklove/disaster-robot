@@ -199,6 +199,18 @@ class CommunicationManager:
             middle = (front + rear) / 2  # 기본: 앞/뒤 평균
         return self.send_command(WheelSizeCommand(front=front, rear=rear, middle=middle))
     
+    def send_wheel_sizes(self, sizes: list) -> bool:
+        """6개 바퀴 각각 독립 사이즈 명령. sizes = [FL, FR, ML, MR, RL, RR]"""
+        if len(sizes) != 6:
+            raise ValueError(f"sizes는 6개 필요, 받음: {len(sizes)}")
+        # front/middle/rear 평균도 같이 채워서 호환성 유지
+        front = (sizes[0] + sizes[1]) / 2
+        middle = (sizes[2] + sizes[3]) / 2
+        rear = (sizes[4] + sizes[5]) / 2
+        return self.send_command(WheelSizeCommand(
+            front=front, middle=middle, rear=rear, sizes=list(sizes)
+        ))
+    
     def send_steering_mode(self, mode: str) -> bool:
         return self.send_command(SteeringModeCommand(mode=mode))
     
