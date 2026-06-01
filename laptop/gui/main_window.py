@@ -53,18 +53,15 @@ DISCRETE_KEY_MAP = {
     Qt.Key_F: 'wheel_size_front_down',
     Qt.Key_T: 'wheel_size_rear_up',
     Qt.Key_G: 'wheel_size_rear_down',
-    # 6개 바퀴 개별 선택 (Numpad)
-    Qt.Key_7: 'select_FL',
-    Qt.Key_8: 'select_FR',
-    Qt.Key_4: 'select_ML',
-    Qt.Key_5: 'select_MR',
-    Qt.Key_1: 'select_RL',
-    Qt.Key_2: 'select_RR',
-    Qt.Key_0: 'select_ALL',
-    # 선택된 바퀴 사이즈 조절
-    Qt.Key_Plus: 'selected_wheel_up',
-    Qt.Key_Equal: 'selected_wheel_up',    # = 키 (Shift 없을 때)
-    Qt.Key_Minus: 'selected_wheel_down',
+    # 6개 바퀴 개별 조절 (Numpad)
+    # 그냥 누르면 확대(+), Shift 누르면 축소(-)
+    Qt.Key_7: 'wheel_FL',
+    Qt.Key_8: 'wheel_FR',
+    Qt.Key_4: 'wheel_ML',
+    Qt.Key_5: 'wheel_MR',
+    Qt.Key_1: 'wheel_RL',
+    Qt.Key_2: 'wheel_RR',
+    Qt.Key_0: 'wheel_ALL',
 }
 
 # 바퀴 인덱스 (HAL과 동일)
@@ -192,6 +189,10 @@ class MainWindow(QMainWindow):
     
     def _on_discrete_key(self, key: int):
         """단발 키 처리"""
+        from PySide6.QtWidgets import QApplication
+        modifiers = QApplication.keyboardModifiers()
+        shift_pressed = bool(modifiers & Qt.ShiftModifier)
+        
         action = DISCRETE_KEY_MAP.get(key)
         if action == 'quit':
             self.close()
@@ -228,33 +229,27 @@ class MainWindow(QMainWindow):
             self.wheel_sizes[WHEEL_INDEX['RL']] = self.wheel_size_rear
             self.wheel_sizes[WHEEL_INDEX['RR']] = self.wheel_size_rear
             self.comm.send_wheel_sizes(self.wheel_sizes)
-        # ─── 6개 바퀴 개별 선택 ───
-        elif action and action.startswith('select_'):
+        # ─── 6개 바퀴 개별 조절 (Shift = 축소, 그냥 = 확대) ───
+        elif action and action.startswith('wheel_'):
             target = action.split('_')[1]   # FL, FR, ML, MR, RL, RR, ALL
-            if target == 'ALL':
-                self.selected_wheel = None
-                self.statusBar().showMessage("Selected: ALL (6 wheels)", 2000)
-            else:
-                self.selected_wheel = WHEEL_INDEX[target]
-                self.statusBar().showMessage(f"Selected: {target} (size={self.wheel_sizes[self.selected_wheel]:.2f})", 2000)
-        elif action == 'selected_wheel_up':
-            self._adjust_selected_wheel(+self.SIZE_STEP)
-        elif action == 'selected_wheel_down':
-            self._adjust_selected_wheel(-self.SIZE_STEP)
+            delta = -self.SIZE_STEP if shift_pressed else +self.SIZE_STEP
+            self._adjust_wheel(target, delta)
     
-    def _adjust_selected_wheel(self, delta: float):
-        """선택된 바퀴(또는 전체) 사이즈 조절."""
-        if self.selected_wheel is None:
-            # 전체 동시 조절
-            new_sizes = [max(0.0, min(1.0, s + delta)) for s in self.wheel_sizes]
-            self.wheel_sizes = new_sizes
-            self.statusBar().showMessage(f"ALL wheels → {new_sizes[0]:.2f}", 1000)
+    def _adjust_wheel(self, target: str, delta: float):
+        """특정 바퀴 또는 전체 사이즈 조절.
+        
+        Args:
+            target: 'FL', 'FR', 'ML', 'MR', 'RL', 'RR', 'ALL' 중 하나
+            delta: 사이즈 변화량 (양수=확대, 음수=축소)
+        """
+        if target == 'ALL':
+            self.wheel_sizes = [max(0.0, min(1.0, s + delta)) for s in self.wheel_sizes]
+            self.statusBar().showMessage(f"ALL wheels → {self.wheel_sizes[0]:.2f}", 1000)
         else:
-            i = self.selected_wheel
+            i = WHEEL_INDEX[target]
             self.wheel_sizes[i] = max(0.0, min(1.0, self.wheel_sizes[i] + delta))
-            name = list(WHEEL_INDEX.keys())[i]
-            self.statusBar().showMessage(f"{name} → {self.wheel_sizes[i]:.2f}", 1000)
-        # 그룹 평균도 같이 업데이트 (디스플레이용)
+            self.statusBar().showMessage(f"{target} → {self.wheel_sizes[i]:.2f}", 1000)
+        # 그룹 평균도 업데이트 (디스플레이용)
         self.wheel_size_front = (self.wheel_sizes[0] + self.wheel_sizes[1]) / 2
         self.wheel_size_rear = (self.wheel_sizes[4] + self.wheel_sizes[5]) / 2
         print(f"[GUI] send_wheel_sizes: {[f'{s:.2f}' for s in self.wheel_sizes]}")
