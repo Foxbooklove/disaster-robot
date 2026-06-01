@@ -31,9 +31,12 @@ class VideoWidget(QLabel):
     # 단발 동작 키 (한 번 누름)
     DISCRETE_KEYS = {Qt.Key_M, Qt.Key_H, Qt.Key_Q, Qt.Key_Space,
                      Qt.Key_R, Qt.Key_F, Qt.Key_T, Qt.Key_G,
-                     # 6개 바퀴 개별 조절 (Numpad)
+                     # 6개 바퀴 확대 (Numpad)
                      Qt.Key_0, Qt.Key_1, Qt.Key_2, Qt.Key_4,
-                     Qt.Key_5, Qt.Key_7, Qt.Key_8}
+                     Qt.Key_5, Qt.Key_7, Qt.Key_8,
+                     # 6개 바퀴 축소 (알파벳)
+                     Qt.Key_U, Qt.Key_I, Qt.Key_J, Qt.Key_K,
+                     Qt.Key_N, Qt.Key_Comma, Qt.Key_Period}
     
     def __init__(self, parent=None):
         super().__init__(parent)

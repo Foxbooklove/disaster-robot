@@ -53,15 +53,23 @@ DISCRETE_KEY_MAP = {
     Qt.Key_F: 'wheel_size_front_down',
     Qt.Key_T: 'wheel_size_rear_up',
     Qt.Key_G: 'wheel_size_rear_down',
-    # 6개 바퀴 개별 조절 (Numpad)
-    # 그냥 누르면 확대(+), Shift 누르면 축소(-)
-    Qt.Key_7: 'wheel_FL',
-    Qt.Key_8: 'wheel_FR',
-    Qt.Key_4: 'wheel_ML',
-    Qt.Key_5: 'wheel_MR',
-    Qt.Key_1: 'wheel_RL',
-    Qt.Key_2: 'wheel_RR',
-    Qt.Key_0: 'wheel_ALL',
+    # 6개 바퀴 개별 조절
+    # 확대(+): Numpad 위치 그대로
+    Qt.Key_7: 'wheel_FL_up',
+    Qt.Key_8: 'wheel_FR_up',
+    Qt.Key_4: 'wheel_ML_up',
+    Qt.Key_5: 'wheel_MR_up',
+    Qt.Key_1: 'wheel_RL_up',
+    Qt.Key_2: 'wheel_RR_up',
+    Qt.Key_0: 'wheel_ALL_up',
+    # 축소(-): Numpad와 위치적으로 매칭되는 알파벳
+    Qt.Key_U:      'wheel_FL_down',
+    Qt.Key_I:      'wheel_FR_down',
+    Qt.Key_J:      'wheel_ML_down',
+    Qt.Key_K:      'wheel_MR_down',
+    Qt.Key_N:      'wheel_RL_down',     # M은 mode라 N으로
+    Qt.Key_Comma:  'wheel_RR_down',
+    Qt.Key_Period: 'wheel_ALL_down',
 }
 
 # 바퀴 인덱스 (HAL과 동일)
@@ -189,10 +197,6 @@ class MainWindow(QMainWindow):
     
     def _on_discrete_key(self, key: int):
         """단발 키 처리"""
-        from PySide6.QtWidgets import QApplication
-        modifiers = QApplication.keyboardModifiers()
-        shift_pressed = bool(modifiers & Qt.ShiftModifier)
-        
         action = DISCRETE_KEY_MAP.get(key)
         if action == 'quit':
             self.close()
@@ -229,10 +233,12 @@ class MainWindow(QMainWindow):
             self.wheel_sizes[WHEEL_INDEX['RL']] = self.wheel_size_rear
             self.wheel_sizes[WHEEL_INDEX['RR']] = self.wheel_size_rear
             self.comm.send_wheel_sizes(self.wheel_sizes)
-        # ─── 6개 바퀴 개별 조절 (Shift = 축소, 그냥 = 확대) ───
+        # ─── 6개 바퀴 개별 조절 (wheel_XX_up 또는 wheel_XX_down) ───
         elif action and action.startswith('wheel_'):
-            target = action.split('_')[1]   # FL, FR, ML, MR, RL, RR, ALL
-            delta = -self.SIZE_STEP if shift_pressed else +self.SIZE_STEP
+            parts = action.split('_')   # ['wheel', 'FL', 'up'] 또는 ['wheel', 'ALL', 'down']
+            target = parts[1]
+            direction = parts[2]
+            delta = +self.SIZE_STEP if direction == 'up' else -self.SIZE_STEP
             self._adjust_wheel(target, delta)
     
     def _adjust_wheel(self, target: str, delta: float):
