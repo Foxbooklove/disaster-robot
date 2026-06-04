@@ -118,7 +118,7 @@ def print_status(channel: int, current_pulse: int, cal: MotorCalibration, msg: s
     print("  [Tab/Shift+Tab] 채널 변경    [0~9 q w e r] 직접 선택")
     print("  [←/→] ±10us    [↑/↓] ±50us    [Home] 1500us 리셋")
     print("  [s] MIN 저장   [c] CENTER 저장   [d] MAX 저장")
-    print("  [F2] 파일 저장   [F3] sweep 테스트   [Esc/q] 종료")
+    print("  [F2 / w] 파일 저장   [F3] sweep 테스트   [Esc/q] 종료")
     print("  ─────────────────────────────────────────────────────")
     print()
     if msg:
@@ -307,8 +307,8 @@ def main():
                     servo.max_pulse_us = current_pulse
                     msg = f"MAX = {current_pulse}us 저장됨 (메모리). F2로 파일 저장."
             
-            # 파일 저장
-            elif key == 'F2':
+            # 파일 저장 (F2 또는 w - SSH 환경에서 F-key 안 먹을 때 대안)
+            elif key == 'F2' or key == 'w':
                 cal.save(CALIBRATION_FILE)
                 msg = f"파일 저장 완료: {CALIBRATION_FILE}"
             
