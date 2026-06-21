@@ -1,4 +1,4 @@
-# config/real.yaml
+﻿# config/real.yaml
 # 실제 하드웨어 설정
 # ⚠️ 0.0 으로 표시된 값은 기계팀 설계 확정 후 반드시 업데이트 필요
 # 업데이트 안 하면 실행 시 ValueError 발생 (config/loader.py에서 검증)
@@ -6,8 +6,8 @@
 mode: real
 
 network:
-  laptop_ip: "100.83.6.44"       # default: 시연 (노트북 Tailscale)
-  rpi_ip: "100.67.88.118"        # 라파 Tailscale
+  laptop_ip: "0.0.0.0"       # default: 시연 (노트북 Tailscale)
+  rpi_ip: "0.0.0.0"        # 라파 Tailscale
   video_port: 9999
   command_port: 9998
   telemetry_port: 9997
@@ -16,7 +16,7 @@ network:
     dev-wired:
       laptop_ip: "192.168.137.1"     # 데스크탑 ICS
     dev-wireless:
-      laptop_ip: "100.92.46.121"     # 데스크탑 Tailscale
+      laptop_ip: "0.0.0.0"     # 데스크탑 Tailscale
 
 motor_pins:
   # PCA9685 채널 (서보)

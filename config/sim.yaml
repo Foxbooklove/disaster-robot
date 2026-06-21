@@ -1,4 +1,4 @@
-# config/sim.yaml
+﻿# config/sim.yaml
 # 시뮬레이션 전용 설정 - localhost에서 두 프로세스 실행
 # ⚠️ 모든 물리 파라미터는 임시값. 실제 하드웨어 도착 후 real.yaml 사용
 
@@ -8,8 +8,8 @@ mode: simulation
 # 네트워크
 # ─────────────────────────────────────────────
 network:
-  laptop_ip: "100.83.6.44"     # 노트북 Tailscale IP
-  rpi_ip: "100.67.88.118"      # 라파 Tailscale IP
+  laptop_ip: "0.0.0.0"     # 노트북 Tailscale IP
+  rpi_ip: "0.0.0.0"      # 라파 Tailscale IP
   video_port: 9999
   command_port: 9998
   telemetry_port: 9997
